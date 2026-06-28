@@ -1,1 +1,9 @@
-initial check
+DMAC Action Items
+
+•	Understand working logic of Slave Agent
+•	How will both descriptors work simultaneously?
+•	If both descriptors are configured, how it will work w.r.t AXI interface?
+•	Understand how each of the two descriptors be aborted individually?
+•	Will Abort cancels the transaction or hold it until de-asserted?
+•	How does Slave agent provide response? What happens at Transaction Level?
+•	Understand how address is updated in Design.
