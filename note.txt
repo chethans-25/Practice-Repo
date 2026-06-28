@@ -7,3 +7,99 @@ DMAC Action Items
 •	Will Abort cancels the transaction or hold it until de-asserted?
 •	How does Slave agent provide response? What happens at Transaction Level?
 •	Understand how address is updated in Design.
+
+
+
+From dma_pkg.svh, the design is built with two descriptor slots, DMA_NUM_DESC = 2. Each descriptor carries:
+
+source address
+destination address
+byte count
+read/write mode
+enable bit
+The actual scheduling is done in dma_fsm.sv and dma_streamer.sv.
+
+1) How do both descriptors work together?
+They are not treated as two fully independent DMA jobs running in parallel.
+
+The FSM scans the descriptor array and picks the first descriptor that is:
+enabled, and
+has a non-zero byte count
+It then drives that descriptor to the read streamer and write streamer.
+After that descriptor finishes, the FSM moves to the next eligible descriptor.
+So the behavior is effectively:
+
+descriptor 0 first,
+then descriptor 1,
+one descriptor at a time per direction.
+There is no separate “descriptor 0 engine” and “descriptor 1 engine”; both descriptors are just entries in a list.
+
+2) What happens on the AXI interface if both descriptors are configured?
+Both descriptors share the same AXI master interface.
+
+The AXI side is reused for whichever descriptor is currently active:
+
+read side uses AR/R channels
+write side uses AW/W/B channels
+When the active descriptor changes, the design changes:
+
+the AXI address
+the burst length
+the byte strobes
+the transfer size
+So from the AXI point of view, it is still one DMA stream using the same channels, but the request contents change when the descriptor changes.
+
+A useful point: the read and write paths are decoupled by a FIFO in dma_func_wrapper.sv, but that FIFO is not per-descriptor. It is just a shared data buffer between the read and write sides.
+
+3) Can each descriptor be aborted individually?
+No. There is no per-descriptor abort signal in the RTL.
+
+The only abort input is a global signal, dma_ctrl_i.abort_req, passed into:
+
+the FSM
+both streamers
+the AXI interface
+That means:
+
+aborting stops the whole DMA engine,
+not just descriptor 0 or descriptor 1.
+4) Does abort cancel the transaction immediately or hold it?
+It does both, depending on whether the transaction is already in flight.
+
+From dma_streamer.sv and dma_axi_if.sv:
+
+New transactions are stopped immediately when abort is asserted.
+If a transaction has already been accepted by the AXI interface and is waiting for completion, the design lets that current transaction finish rather than canceling it mid-flight.
+So the practical behavior is:
+
+no new requests are issued after abort,
+an already started AXI transfer is allowed to drain/complete.
+In short: abort does not retroactively kill an in-flight transaction; it prevents new ones from starting.
+
+5) How is the address updated?
+The address update is done inside the streamer, not by the AXI slave.
+
+For each descriptor, the design keeps a local register desc_addr_ff:
+
+initially loaded from the descriptor’s source or destination address
+then updated after each generated transaction
+The update rule is:
+
+if the mode is DMA_MODE_FIXED, the address stays the same
+if the mode is DMA_MODE_INCR, the address advances by the number of bytes transferred in that transaction
+The AXI request address is derived from this current descriptor address, using an aligned address for burst generation in dma_streamer.sv.
+
+So the flow is:
+
+start from descriptor src/dst address
+generate one AXI burst
+advance the descriptor address by the transferred byte count
+continue with the next burst
+Bottom line
+Two descriptors are supported as two entries in the descriptor table.
+They are processed sequentially, not as two fully independent simultaneous DMA jobs.
+The AXI interface is shared and reused for whichever descriptor is active.
+Abort is global, not per-descriptor.
+Abort stops new transactions but does not cancel an already accepted in-flight transfer.
+Descriptor addresses advance incrementally unless the mode is fixed.
+If you want, I can also draw the control flow as a small sequence diagram for descriptor 0 → descriptor 1.
