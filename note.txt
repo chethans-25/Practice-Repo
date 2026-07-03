@@ -19,6 +19,9 @@ read/write mode
 enable bit
 The actual scheduling is done in dma_fsm.sv and dma_streamer.sv.
 
+**********************************************************************************************************************
+
+
 1) How do both descriptors work together?
 They are not treated as two fully independent DMA jobs running in parallel.
 
@@ -33,6 +36,9 @@ descriptor 0 first,
 then descriptor 1,
 one descriptor at a time per direction.
 There is no separate “descriptor 0 engine” and “descriptor 1 engine”; both descriptors are just entries in a list.
+
+**********************************************************************************************************************
+
 
 2) What happens on the AXI interface if both descriptors are configured?
 Both descriptors share the same AXI master interface.
@@ -51,6 +57,9 @@ So from the AXI point of view, it is still one DMA stream using the same channel
 
 A useful point: the read and write paths are decoupled by a FIFO in dma_func_wrapper.sv, but that FIFO is not per-descriptor. It is just a shared data buffer between the read and write sides.
 
+
+**********************************************************************************************************************
+
 3) Can each descriptor be aborted individually?
 No. There is no per-descriptor abort signal in the RTL.
 
@@ -63,6 +72,9 @@ That means:
 
 aborting stops the whole DMA engine,
 not just descriptor 0 or descriptor 1.
+
+**********************************************************************************************************************
+
 4) Does abort cancel the transaction immediately or hold it?
 It does both, depending on whether the transaction is already in flight.
 
@@ -75,6 +87,9 @@ So the practical behavior is:
 no new requests are issued after abort,
 an already started AXI transfer is allowed to drain/complete.
 In short: abort does not retroactively kill an in-flight transaction; it prevents new ones from starting.
+
+**********************************************************************************************************************
+
 
 5) How is the address updated?
 The address update is done inside the streamer, not by the AXI slave.
