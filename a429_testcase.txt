@@ -1,0 +1,9 @@
+Here is a comprehensive test case for your ARINC 429 VIP (Verification IP) to verify the Null state timeout requirement.
+​Because ARINC 429 uses Bipolar Return-to-Zero (BPRZ) encoding, a standard gap between 32-bit words is typically 4 bit times. This requirement ensures your Receiver VIP correctly identifies when the bus goes completely idle beyond the standard inter-word gap.
+​Test Case: ARINC_429_RX_NULL_TIMEOUT_001
+​Objective: Verify that the Receiver VIP identifies and logs a "Null (no data)" condition exclusively when the bus remains in the Null state (0V differential) for strictly greater than 5 bit times.
+​Prerequisites:
+​The ARINC 429 Receiver VIP is configured and instantiated in the testbench.
+​The bus speed is configured (e.g., High Speed at 100 kbps where 1 bit time = 10 µs, or Low Speed at 12.5 kbps where 1 bit time = 80 µs).
+​The bus is initialized to the Null state.
+​Stimulus and Observation Sequence
