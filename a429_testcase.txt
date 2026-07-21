@@ -7,3 +7,36 @@ Here is a comprehensive test case for your ARINC 429 VIP (Verification IP) to ve
 ​The bus speed is configured (e.g., High Speed at 100 kbps where 1 bit time = 10 µs, or Low Speed at 12.5 kbps where 1 bit time = 80 µs).
 ​The bus is initialized to the Null state.
 ​Stimulus and Observation Sequence
+
+StepStimulus Action (TX/Driver)Observation Point (RX/Monitor)
+1Transmit a valid 32-bit ARINC 429 word (e.g., Label 055).RX VIP successfully receives and decodes the 32-bit word.
+2Drive the bus to the Null state for exactly 4.0 bit times.No Null condition logged. This is a standard inter-word gap.
+3Transmit a second valid 32-bit ARINC 429 word.RX VIP successfully receives the second word.
+4Drive the bus to the Null state for exactly 5.0 bit times.No Null condition logged. Boundary condition is respected.
+5Transmit a third valid 32-bit ARINC 429 word.RX VIP successfully receives the third word.
+6Drive the bus to the Null state and hold it for > 5.0 bit times (e.g., 6.0 bit times).CRITICAL CHECK: At exactly 5+ bit times (plus any clock sampling delta), the VIP logs the "Null (no data)" condition.
+7Transmit a fourth valid 32-bit ARINC 429 word.VIP recovers gracefully from the Null state, clears the condition, and receives the word.
+
+Verification IP Implementation Details
+​To make this test robust in a standard UVM/SystemVerilog environment, you should track the following hooks in your VIP:
+​1. Boundary Value Analysis (BVA)
+​Hardware clocks and sampling can introduce edge-case race conditions. Run this sequence with randomized timing sweeps at the boundaries:
+​Sweep 1: 4.99 bit times (Must NOT trigger)
+​Sweep 2: 5.00 bit times (Must NOT trigger)
+​Sweep 3: 5.01 bit times (MUST trigger)
+​2. Assertions (SVA)
+​If your VIP includes SystemVerilog Assertions, you can bind an assertion to the receiver interface to catch this automatically without relying purely on UVM logs.
+​An example property logic:
+// Assuming 'rx_null' is a signal indicating the bus is in the Null state
+// and 'bit_clk' is the recovered or reference bit clock.
+
+property p_null_timeout;
+  @(posedge bit_clk) 
+  $rose(rx_null) |-> (rx_null [*5]) |=> rx_null_logged_flag;
+endproperty
+
+assert_null_timeout: assert property(p_null_timeout) 
+  else $error("Receiver failed to identify Null state over 5 bit times.");
+
+Log Checking
+​Your testbench scoreboard or sequence must parse the VIP's logger output (e.g., via uvm_info or uvm_warning). Verify that the text logged exactly matches the required terminology: "Null( no data )".
