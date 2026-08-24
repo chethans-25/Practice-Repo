@@ -1,0 +1,267 @@
+# ============================================================================
+# Design Compile Makefile - Questa (default) / Cadence Xcelium
+# Top module : dma_axi_wrapper
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Simulator select
+# ----------------------------------------------------------------------------
+# SIM = questa (default) | xcelium
+SIM ?= questa
+
+# ----------------------------------------------------------------------------
+# Directories
+# ----------------------------------------------------------------------------
+PROJ_ROOT   := $(abspath ..)
+RTL_DIR     := $(PROJ_ROOT)/rtl
+INC_DIR     := $(RTL_DIR)/inc
+CSR_DIR     := $(PROJ_ROOT)/csr_out
+PKG_DIR     := $(PROJ_ROOT)/bus_arch_sv_pkg
+RGGEN_DIR   := $(PROJ_ROOT)/rggen-verilog-rtl
+LOG_DIR     := $(abspath .)/logs
+WORK_LIB    := worklib
+
+# ----------------------------------------------------------------------------
+# Top module
+# ----------------------------------------------------------------------------
+TOP         := dma_axi_wrapper
+
+# ----------------------------------------------------------------------------
+# Source files - ORDER IS IMPORTANT (packages before modules)
+# ----------------------------------------------------------------------------
+
+# 1. External: AXI bus architecture package (git submodule: bus_arch_sv_pkg)
+#    Only amba_axi_pkg.sv is required; ahb/avalon packages are not used.
+BUS_PKG_SRC := $(PKG_DIR)/amba_axi_pkg.sv
+
+# 2. External: rggen RTL primitives (git submodule: rggen-verilog-rtl)
+#    All plain-Verilog (.v) modules; macros header resolved via -incdir above.
+RGGEN_SRC   := $(sort $(wildcard $(RGGEN_DIR)/*.v))
+
+# 3. DMA utilities package (must come before all DMA modules)
+DMA_PKG_SRC := $(RTL_DIR)/inc/dma_utils_pkg.sv
+
+# 4. CSR block - use the plain-Verilog output (csr_dma.v) which only needs
+#    rggen_rtl_macros.vh; the SV variant (csr_dma.sv) requires rggen_rtl_pkg
+#    which is not present in the rggen-verilog-rtl submodule.
+CSR_SRC     := $(CSR_DIR)/csr_dma.v
+
+# 5. DMA RTL modules (order: leaves first, wrapper last)
+DMA_SRC     := $(RTL_DIR)/dma_fifo.sv       \
+               $(RTL_DIR)/dma_fsm.sv        \
+               $(RTL_DIR)/dma_streamer.sv   \
+               $(RTL_DIR)/dma_axi_if.sv     \
+               $(RTL_DIR)/dma_func_wrapper.sv \
+               $(RTL_DIR)/dma_axi_wrapper.sv
+
+# Full ordered source list
+ALL_SRC     := $(BUS_PKG_SRC)  \
+               $(RGGEN_SRC)    \
+               $(DMA_PKG_SRC)  \
+               $(CSR_SRC)      \
+               $(DMA_SRC)
+
+# ----------------------------------------------------------------------------
+# Per-simulator tools, flags and recipes
+# ----------------------------------------------------------------------------
+ifeq ($(SIM),questa)
+
+VLIB        := vlib
+VLOG        := vlog
+VOPT        := vopt
+VSIM        := vsim
+
+WORK_DIR    := $(abspath .)/$(WORK_LIB)
+
+# AXI_DATA_WIDTH=64 must match the BUS_WIDTH=64 hardcoded inside csr_dma.v /
+# rggen_axi4lite_adapter.v.  The amba_axi_pkg default is 32, which produces
+# port-width mismatches on wdata (32 vs 64), wstrb (4 vs 8), and rdata.
+# -mfcu: compile all sources as one unit so `defines from amba_axi_pkg.sv
+# (e.g. AXI_ADDR_WIDTH) are visible in later files like dma_pkg.svh; Questa
+# treats each file as its own compilation unit by default, unlike Xcelium.
+VLOG_OPTS   := -sv                          \
+               -mfcu                        \
+               -work $(WORK_LIB)            \
+               +define+NO_ASSERTIONS        \
+               +define+AXI_DATA_WIDTH=64    \
+               +incdir+$(INC_DIR)           \
+               +incdir+$(RGGEN_DIR)
+
+# +acc: keep full visibility for waveform/GUI debug (Xcelium's -access +r).
+# Port-width nowarn (Xcelium's PORTPOUND) has no direct Questa analog since
+# rggen's clip_width() coercion is compile-time; if vopt/vlog flags a benign
+# width mismatch on ID_WIDTH=0 ports, add "-suppress <id>" here with the
+# specific message id reported in the log.
+VOPT_OPTS   := -work $(WORK_LIB)            \
+               +acc
+
+# +notimingchecks: disable specify-block timing checks (no SDF back-annotation
+# in RTL-only sim). Timescale is taken from source `timescale directives /
+# defaults to 1ns/1ps; override per-file if needed.
+VSIM_OPTS   := -work $(WORK_LIB)            \
+               +notimingchecks
+
+.PHONY: all compile elab gui clean help check_submodules
+
+all: elab
+
+check_submodules:
+	@if [ -z "$(RGGEN_SRC)" ]; then \
+	  echo "ERROR: rggen-verilog-rtl submodule is empty."; \
+	  echo "       Run: git submodule update --init --recursive"; \
+	  exit 1; \
+	fi
+	@if [ ! -f "$(BUS_PKG_SRC)" ]; then \
+	  echo "ERROR: $(BUS_PKG_SRC) not found."; \
+	  echo "       Run: git submodule update --init --recursive"; \
+	  exit 1; \
+	fi
+
+# Create work library and log directory
+$(LOG_DIR):
+	mkdir -p $@
+
+$(WORK_DIR): | $(LOG_DIR)
+	$(VLIB) $(WORK_LIB)
+
+# Compile all sources (analysis step)
+compile: check_submodules | $(WORK_DIR)
+	@echo "========================================================"
+	@echo " Compiling design sources"
+	@echo "========================================================"
+	$(VLOG) $(VLOG_OPTS) \
+	  -logfile $(LOG_DIR)/compile.log \
+	  $(ALL_SRC)
+	@echo ""
+	@echo "[COMPILE] Done. See $(LOG_DIR)/compile.log"
+
+# Elaborate the design
+elab: compile
+	@echo "========================================================"
+	@echo " Elaborating top: $(TOP)"
+	@echo "========================================================"
+	$(VOPT) $(VOPT_OPTS) \
+	  -logfile $(LOG_DIR)/elab.log \
+	  $(WORK_LIB).$(TOP) -o $(TOP)_opt
+	@echo ""
+	@echo "[ELAB] Done. See $(LOG_DIR)/elab.log"
+
+# Launch the Questa GUI to browse hierarchy (elaborates first if needed)
+gui: elab
+	@echo "========================================================"
+	@echo " Launching Questa GUI — top: $(TOP)"
+	@echo "========================================================"
+	$(VSIM) -gui $(VSIM_OPTS) \
+	  -logfile $(LOG_DIR)/gui.log \
+	  $(WORK_LIB).$(TOP)_opt
+
+# Remove all generated outputs
+clean:
+	@echo "Cleaning Questa outputs..."
+	rm -rf $(WORK_DIR) $(LOG_DIR)
+	rm -f  transcript vsim.wlf modelsim.ini *.diag
+
+else ifeq ($(SIM),xcelium)
+
+XMVLOG      := xmvlog
+XMELAB      := xmelab
+
+WORK_DIR    := $(abspath .)/xcelium.d
+
+# AXI_DATA_WIDTH=64 must match the BUS_WIDTH=64 hardcoded inside csr_dma.v /
+# rggen_axi4lite_adapter.v.  The amba_axi_pkg default is 32, which produces
+# port-width mismatches on wdata (32 vs 64), wstrb (4 vs 8), and rdata.
+XMVLOG_OPTS := -sv                          \
+               -work $(WORK_LIB)            \
+               -define NO_ASSERTIONS        \
+               -define AXI_DATA_WIDTH=64    \
+               -incdir $(INC_DIR)           \
+               -incdir $(RGGEN_DIR)
+
+# PORTPOUND: suppress width-coercion warnings from rggen primitives that use
+# the ACTUAL_ID_WIDTH = clip_width(ID_WIDTH) trick — resolves to 1 when
+# ID_WIDTH=0, which Xcelium flags as a benign port-width difference.
+XMELAB_OPTS := -work $(WORK_LIB)            \
+               -access +r                   \
+               -timescale 1ns/1ps           \
+               -notimingchecks              \
+               -nowarn PORTPOUND
+
+.PHONY: all compile elab gui clean help check_submodules
+
+all: elab
+
+check_submodules:
+	@if [ -z "$(RGGEN_SRC)" ]; then \
+	  echo "ERROR: rggen-verilog-rtl submodule is empty."; \
+	  echo "       Run: git submodule update --init --recursive"; \
+	  exit 1; \
+	fi
+	@if [ ! -f "$(BUS_PKG_SRC)" ]; then \
+	  echo "ERROR: $(BUS_PKG_SRC) not found."; \
+	  echo "       Run: git submodule update --init --recursive"; \
+	  exit 1; \
+	fi
+
+# Create work library and log directory
+$(WORK_DIR) $(LOG_DIR):
+	mkdir -p $@
+
+# Compile all sources (analysis step)
+compile: check_submodules | $(WORK_DIR) $(LOG_DIR)
+	@echo "========================================================"
+	@echo " Compiling design sources"
+	@echo "========================================================"
+	$(XMVLOG) $(XMVLOG_OPTS) \
+	  -log $(LOG_DIR)/compile.log \
+	  $(ALL_SRC)
+	@echo ""
+	@echo "[COMPILE] Done. See $(LOG_DIR)/compile.log"
+
+# Elaborate the design
+elab: compile
+	@echo "========================================================"
+	@echo " Elaborating top: $(TOP)"
+	@echo "========================================================"
+	$(XMELAB) $(XMELAB_OPTS) \
+	  -log $(LOG_DIR)/elab.log \
+	  $(WORK_LIB).$(TOP)
+	@echo ""
+	@echo "[ELAB] Done. See $(LOG_DIR)/elab.log"
+
+# Launch SimVision GUI to browse hierarchy (elaborates first if needed)
+gui: elab
+	@echo "========================================================"
+	@echo " Launching SimVision GUI — top: $(TOP)"
+	@echo "========================================================"
+	xmsim -gui -work $(WORK_LIB) \
+	  -log $(LOG_DIR)/gui.log \
+	  $(WORK_LIB).$(TOP)
+
+# Remove all generated outputs
+clean:
+	@echo "Cleaning Xcelium outputs..."
+	rm -rf $(WORK_DIR) $(LOG_DIR)
+	rm -f  xmelab.log xmvlog.log xmsim.log *.diag .simvision
+
+else
+$(error Unknown SIM=$(SIM). Supported values: questa, xcelium)
+endif
+
+help:
+	@echo ""
+	@echo "  make all      - Compile and elaborate (default)"
+	@echo "  make compile  - Analysis only"
+	@echo "  make elab     - Elaborate after compile"
+	@echo "  make gui      - Elaborate then open simulator GUI"
+	@echo "  make clean    - Remove all generated files"
+	@echo ""
+	@echo "  Simulator select:"
+	@echo "    SIM=questa   - Use Questa (vlog/vopt/vsim) [default]"
+	@echo "    SIM=xcelium  - Use Cadence Xcelium (xmvlog/xmelab)"
+	@echo ""
+	@echo "  Override options:"
+	@echo "    VLOG_OPTS / XMVLOG_OPTS   - Extra compile flags"
+	@echo "    VOPT_OPTS / XMELAB_OPTS   - Extra elaboration flags"
+	@echo "    TOP                       - Top module (default: dma_axi_wrapper)"
+	@echo ""
