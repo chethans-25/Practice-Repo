@@ -13,18 +13,20 @@ SIM ?= questa
 # Directories
 # ----------------------------------------------------------------------------
 PROJ_ROOT   := $(abspath ..)
-RTL_DIR     := $(PROJ_ROOT)/rtl
+RTL_DIR     := $(PROJ_ROOT)/dut/rtl
 INC_DIR     := $(RTL_DIR)/inc
-CSR_DIR     := $(PROJ_ROOT)/csr_out
-PKG_DIR     := $(PROJ_ROOT)/bus_arch_sv_pkg
-RGGEN_DIR   := $(PROJ_ROOT)/rggen-verilog-rtl
-LOG_DIR     := $(abspath .)/logs
+CSR_DIR     := $(PROJ_ROOT)/dut/csr_out
+PKG_DIR     := $(PROJ_ROOT)/dut/bus_arch_sv_pkg
+RGGEN_DIR   := $(PROJ_ROOT)/dut/rggen-verilog-rtl
+TB_DIR      := $(PROJ_ROOT)/tb
+LOG_DIR     := $(abspath .)/sim/logs
 WORK_LIB    := worklib
 
 # ----------------------------------------------------------------------------
 # Top module
 # ----------------------------------------------------------------------------
-TOP         := dma_axi_wrapper
+#TOP         := dma_axi_wrapper
+TOP         := dma_tb_hdl_top
 
 # ----------------------------------------------------------------------------
 # Source files - ORDER IS IMPORTANT (packages before modules)
@@ -54,12 +56,19 @@ DMA_SRC     := $(RTL_DIR)/dma_fifo.sv       \
                $(RTL_DIR)/dma_func_wrapper.sv \
                $(RTL_DIR)/dma_axi_wrapper.sv
 
+# Testbench sources
+TB_SRC := $(TB_DIR)/dma_parameters_pkg.sv \
+          $(TB_DIR)/dma_uvc_pkg.sv \
+          $(TB_DIR)/dma_interface.sv \
+          $(TB_DIR)/dma_tb_hdl_top.sv
+
 # Full ordered source list
 ALL_SRC     := $(BUS_PKG_SRC)  \
                $(RGGEN_SRC)    \
                $(DMA_PKG_SRC)  \
                $(CSR_SRC)      \
-               $(DMA_SRC)
+               $(DMA_SRC)      \
+			   $(TB_SRC)
 
 # ----------------------------------------------------------------------------
 # Per-simulator tools, flags and recipes
