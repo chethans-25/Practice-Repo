@@ -14,7 +14,9 @@
    `include "dma_env_config.sv"                 
    `include "dma_env.sv"                 
    `include "dma_base_sequence.sv"
+   `include "dma_ral_sequence.sv"
    `include "dma_base_test.sv"                 
+   `include "dma_ral_test.sv"                 
 
 `endif // DMA_UVC_LISTS_SVH 
 

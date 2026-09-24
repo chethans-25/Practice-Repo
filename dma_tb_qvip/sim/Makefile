@@ -68,6 +68,12 @@ RGGEN_SRC := $(sort $(wildcard $(RGGEN_DIR)/*.v))
 # CSR block
 CSR_SRC := $(CSR_DIR)/csr_dma.v
 
+# RAL packages (rggen RAL base + designer-generated CSR RAL model)
+# Must be compiled after UVM/QVIP and before TB sources
+RAL_SRC := $(RGGEN_DIR)/rggen-sv-ral-master/rggen_ral_backdoor_pkg.sv \
+           $(RGGEN_DIR)/rggen-sv-ral-master/rggen_ral_pkg.sv \
+           $(CSR_DIR)/csr_dma_ral_pkg.sv
+
 # Testbench sources
 TB_SRC := $(TB_DIR)/dma_parameters_pkg.sv \
           $(TB_DIR)/dma_qvip_tb_params_pkg.sv \

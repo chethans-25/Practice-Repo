@@ -42,6 +42,9 @@ xrun \
   ../dut/rggen-verilog-rtl/rggen_register_common.v \
   ../dut/rggen-verilog-rtl/rggen_wishbone_bridge.v \
   ../dut/csr_out/csr_dma.v \
+  ../dut/rggen-verilog-rtl/rggen-sv-ral-master/rggen_ral_backdoor_pkg.sv \
+  ../dut/rggen-verilog-rtl/rggen-sv-ral-master/rggen_ral_pkg.sv \
+  ../dut/csr_out/csr_dma_ral_pkg.sv \
   ../tb/dma_parameters_pkg.sv \
   ../tb/dma_typedef_pkg.sv \
   ../tb/dma_interface.sv \
